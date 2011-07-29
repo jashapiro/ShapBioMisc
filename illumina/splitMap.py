@@ -1,0 +1,409 @@
+#!/usr/bin/env python
+# encoding: utf-8
+"""
+splitMap.py
+
+Splits Fastq files by a leading barcode, strips the barcode and an optional
+trim length, then maps with bwa, converts to indexed, sorted bam, and recombines. 
+
+Portions copied from bwa_wrapper.py
+
+Created by Joshua Shapiro on 2011-03-31.
+"""
+
+import sys
+import os
+import subprocess
+import shutil
+import optparse
+import tempfile
+import itertools
+
+
+#make sure we can open as many files as we need. Fails on some systems.
+#import resource
+#resource.setrlimit(resource.RLIMIT_NOFILE, (1000, -1))
+
+from Bio.SeqIO.QualityIO import FastqGeneralIterator
+
+def getOptions():
+  """Get command line options"""
+  parser = optparse.OptionParser()
+  parser.add_option("-b", "--barcode", 
+                    action = "store", dest = "barcode_file", default = None,
+                    help = "Tab delimited barcode definition file.")
+  parser.add_option("-f","--read_fwd",
+                    action = "store", dest = "read_fwd", default = None,
+                    help = "Reads (forward if paired end) in fastq format")
+  parser.add_option("-g","--read_rev",
+                    action = "store", dest = "read_rev", default = None,
+                    help = "Reverse reads in fastq format")
+  pareser.add_option("-c", "-read_bc",
+                     action = "store", dest = "read_bc", default = None,
+                     help = "Barcode reads in fastq format"))
+  
+  parser.add_option("-o","--outfile",
+                    action = "store", dest = "out_file", default = None,
+                    help = "Output file for merged bam")
+  parser.add_option("-t","--trim",
+                    action = "store", dest = "trim", 
+                    type = "int", default = 0,
+                    help = "How many bases beyond the barcode should be trimmed")
+  parser.add_option("-u","--unmatched",
+                    action = "store", dest = "unmatched", default = None,
+                    help = ("File to save reads without any of the expected barcodes."
+                            "Default is to discard unmmatched reads"))
+  parser.add_option("-r","--reference",
+                    action = "store", dest = "ref_file", default = "",
+                    help = "The reference genome to use. Must be indexed for bwa and samtools, with index files named as per standard")
+  parser.add_option("-A","--bwa_aln_options",
+                    action = "store", dest = "bwa_aln_options", default = "",
+                    help = ("A string containing mapping options for bwa aln,"
+                            "except for those related to files"))
+  parser.add_option("-S","--bwa_sam_options",
+                    action = "store", dest = "bwa_aln_options", default = "",
+                    help = ("A string containing mapping options for bwa samse or bwa sampe, as appropriate"
+                            "except for those related to files"))
+  (options, args) = parser.parse_args()
+  if not (options.barcode_file and options.read_fwd and options.out_file and options.ref_file):
+    parser.print_help()
+    sys.exit(1)
+  #absolutize paths
+  options.barcode_file = os.path.abspath(options.barcode_file)
+  options.read_fwd = os.path.abspath(options.read_fwd)
+  if options.read_rev:
+    options.read_rev = os.path.abspath(options.read_rev)
+  if options.read_bc:
+    options.read_bc = os.path.abspath(options.read_bc)
+  options.out_file = os.path.abspath(options.out_file)
+  options.ref_file = os.path.abspath(options.ref_file)
+  
+  return options
+
+class Barcode(object):
+  """Barcode object that stores info about barcodes and the associated strain"""
+  def __init__(self, barcode, sample_id, length = None):
+    super(Barcode, self).__init__()
+    self.barcode = barcode.upper()
+    self.sample_id = sample_id
+    if length:
+      self.length = length
+    else:
+      self.length = len(barcode)
+  
+  def expand(self, length):
+    """Create all possible barcodes of the specified length from a shorter barcode
+    Retains info about the original barcode length for trimming, etc."""
+    if length < self.length:
+      raise ValueError("Barcodes can not be extended to be shorter than they already are.")
+    if length == self.length:
+      return([self.barcode])
+    #now the expansion code
+    bc_list = [self.barcode]
+    for i in range(length - self.length):
+      bc_list = [b+c for b in bc_list for c in ['A', 'C', 'G','T']]
+    return(bc_list)
+
+def parseBarcodeFile(file_path):
+  """Parse the barcode file, which should just be a tabbed list.
+  Returns a dict keyed by barcode sequence with barcode objects within
+  and the length of the longest barcode."""
+  infile = open(file_path, 'r')
+  try:
+    lines = infile.readlines()
+  finally:
+    infile.close()
+  
+  barcodes = dict()
+  bc_info = [line.split() for line in lines]
+  bc_len = max(len(b[1]) for b in bc_info)
+  for sample_id, bc_seq in bc_info:
+    base_bc = Barcode(bc_seq, sample_id)
+    for bc in base_bc.expand(bc_len):
+      #check that the barcode has not been seen before.
+      if barcodes.setdefault(bc, base_bc) != base_bc:
+        raise ValueError("Barcodes are not unique")
+  
+  return (barcodes, bc_len)
+  
+def runWrapper(cmd, tmp_dir, outfile):
+  """wrapper to eliminate excception-handling boilerplate"""
+  buffsize = 1048576
+  try:
+    tmp = tempfile.NamedTemporaryFile( dir=tmp_dir ).name
+    tmp_stderr = open( tmp, 'wb' )
+    proc = subprocess.Popen( args=cmd, shell=True, cwd=tmp_dir, stderr=tmp_stderr.fileno() )
+    returncode = proc.wait()
+    tmp_stderr.close()
+    # get stderr, allowing for case where it's very large
+    tmp_stderr = open( tmp, 'rb' )
+    stderr = ''
+    try:
+      while True:
+        stderr += tmp_stderr.read( buffsize )
+        if not stderr or len( stderr ) % buffsize != 0:
+          break
+      except OverflowError:
+        pass
+      tmp_stderr.close()
+      if returncode != 0:
+        raise Exception, stderr
+    except Exception, e:
+      raise Exception, 'Error running command: ' + cmd + '\n'+ str( e ) 
+    # check that there are results in the output file
+    if outfile:
+      output_size = os.path.getsize( outfile )
+      return output_size
+  except Exception, e:
+      raise Exception, 'Wrapped command failed.\n' + str( e )
+      
+
+def runBWA(cmd, outfile, tmp_dir):
+  """code mostly copied from galaxy: bwa_wrapper.py"""
+  buffsize = 1048576
+  try:
+      # align
+      try:
+          tmp = tempfile.NamedTemporaryFile( dir=tmp_dir ).name
+          tmp_stderr = open( tmp, 'wb' )
+          proc = subprocess.Popen( args=cmd + " > " + outfile, shell=True, cwd=tmp_dir, stderr=tmp_stderr.fileno() )
+          returncode = proc.wait()
+          tmp_stderr.close()
+          # get stderr, allowing for case where it's very large
+          tmp_stderr = open( tmp, 'rb' )
+          stderr = ''
+          try:
+              while True:
+                  stderr += tmp_stderr.read( buffsize )
+                  if not stderr or len( stderr ) % buffsize != 0:
+                      break
+          except OverflowError:
+              pass
+          tmp_stderr.close()
+          if returncode != 0:
+              raise Exception, stderr
+      except Exception, e:
+          raise Exception, 'Error generating alignments. ' + str( e ) 
+      # check that there are results in the output file
+      if os.path.getsize( outfile ) > 0:
+        pass
+        # sys.stdout.write( 'BWA run on single-end data.\n'  )
+      else:
+        sys.stdout.write( "No mapped reads.\n")
+  except Exception, e:
+      raise Exception, 'The alignment failed.\n' + str( e ) 
+      
+  
+def samToBam(infile, bam_base, ref_file, tmp_dir):
+  # Extract all alignments from the input SAM file to BAM format ( since no region is specified, all the alignments will be extracted ).
+  if len( open( infile ).read() ) == 0:
+      raise Exception, 'Initial SAM file empty'
+  command = 'samtools view -uT %s %s | samtools sort - %s' % (ref_file, infile, bam_base)
+  tmp = tempfile.NamedTemporaryFile( dir=tmp_dir ).name
+  tmp_stderr = open( tmp, 'wb' )
+  proc = subprocess.Popen( args=command, shell=True, cwd=tmp_dir, stderr=tmp_stderr.fileno() )
+  returncode = proc.wait()
+  tmp_stderr.close()
+  # get stderr, allowing for case where it's very large
+  tmp_stderr = open( tmp, 'rb' )
+  stderr = ''
+  buffsize = 1048576
+  try:
+      while True:
+          stderr += tmp_stderr.read( buffsize )
+          if not stderr or len( stderr ) % buffsize != 0:
+              break
+  except OverflowError:
+      pass
+  tmp_stderr.close()
+  if returncode != 0:
+      raise Exception, stderr
+  
+
+
+def main():
+  opts = getOptions()
+  tmp_dir = tempfile.mkdtemp()
+  barcodes, bc_len = parseBarcodeFile(opts.barcode_file)
+  #create files and filehandles for the fastq files
+  fq_handles = dict()
+  rev_handles = dict()
+  samples =[bc.sample_id for bc in barcodes.values()]
+  samples.sort()
+  headers = ["@RG\tID:%s\tSM:%s\n" % (sample, sample) for sample in samples]
+  for sample in samples:
+    file_path = os.path.join(tmp_dir, sample + ".fastq")
+    fq_handles[sample] = open(file_path, "w")
+  
+  if opts.read_rev:
+    for sample in samples:
+      file_path = os.path.join(tmp_dir, sample + "_rev.fastq")
+      rev_handles[sample] = open(file_path, "w")
+  
+  if opts.unmatched:
+    unmatched = open(opts.unmatched)
+  
+  #read the fastQ file, split by barcode and write out
+  i = 0
+  try:
+    if (not opts.read_rev) and (not opts.read_bc):
+      #old form: single end, with integrated barcode.
+      for title, seq, qual in FastqGeneralIterator(open(opts.read_fwd)):
+        bc_sample = barcodes.get(seq[:bc_len], None)
+        if not bc_sample:
+          if opts.unmatched:
+            unmatched.write("@%s\n%s\n+\n%s\n" % (title, seq, qual))
+          continue
+        handle = fq_handles[bc_sample.sample_id]
+        handle.write("@%s\n%s\n+\n%s\n" % 
+                      (title, 
+                      seq[bc_sample.length + opts.trim:],
+                      qual[bc_sample.length + opts.trim:]))
+  
+    elif opts.read_bc and not opts.read_rev:
+      #new form: single ended, separate barcode read
+      for fwd, bc in itertools.izip(FastqGeneralIterator(open(opts.read_fwd)), 
+                                    FastqGeneralIterator(open(opts.read_bc))):
+        ftitle, fseq, fqual = fwd
+        btitle, bseq, bqual = bc
+        #TODO: add check that read names line up
+        bc_sample = barcodes.get(bseq[:bc_len], None)
+        if not bc_sample:
+          if opts.unmatched:
+            unmatched.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
+          continue
+        handle = fq_handles[bc_sample.sample_id]
+        handle.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
+  
+    elif opts.read_bc and opts.read_rev:
+      #new form: paired end, barcode included
+      for fwd, rev, bc in itertools.izip(FastqGeneralIterator(open(opts.read_fwd)), 
+                                         FastqGeneralIterator(open(opts.read_rev)), 
+                                         FastqGeneralIterator(open(opts.read_bc))):
+        ftitle, fseq, fqual = fwd
+        rtitle, rseq, rqual = rev
+        btitle, bseq, bqual = bc
+        #TODO: add check that read names line up
+        bc_sample = barcodes.get(bseq[:bc_len], None)
+        if not bc_sample:
+          if opts.unmatched:
+            unmatched.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
+            unmatched.write("@%s\n%s\n+\n%s\n" % (rtitle, rseq, rqual))
+          continue
+        handle = fq_handles[bc_sample.sample_id]
+        handle.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
+        rhandle = rev_handles[bc_sample.sample_id]
+        rhandle.write("@%s\n%s\n+\n%s\n" % (rtitle, rseq, rqual))
+    else:
+      #must be paired end with barcode included.. not supported
+      print >> stderr, "Included barcodes are not supported for paired end runs."
+  finally:
+    #close filehandles
+    for fh in fq_handles.values():
+      fh.close()
+    for fh in rev_handles.values():
+      fh.close()
+    if opts.unmatched:
+      unmatched.close()
+  
+  
+  
+  #skipping checks that the ref file is indexed for now
+  ref_file_name = opts.ref_file
+  #run bwa for each file:
+  try:
+    if opts.read_rev:
+      #forward and reverse reads, need to map twice and go
+      for sample in samples:
+        fastq_fwd = os.path.join(tmp_dir, sample + ".fastq")
+        fastq_rev = os.path.join(tmp_dir, sample + "_rev.fastq")
+        temp_fwd = os.path.join(tmp_dir, sample + ".sai")
+        temp_rev = os.path.join(tmp_dir, sample + "_rev.sai")
+        sam = os.path.join(tmp_dir, sample + ".sam")
+        sys.stdout.write( "bwa on %s\n" % sample)
+        cmd = 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_fwd, temp_fwd)
+        cmd += 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_rev, temp_rev)
+        cmd += 'bwa sampe %s %s %s %s %s' % (opts.bwa_sam_options  ref_file_name, temp_fwd, temp_rev, fastq )
+        #do alignments
+        runBWA(cmd, sam, tmp_dir)
+    else:
+      for sample in samples:
+        fastq = os.path.join(tmp_dir, sample + ".fastq")
+        sam = os.path.join(tmp_dir, sample + ".sam")
+        sys.stdout.write( "bwa on %s\n" % sample)
+        cmd = 'bwa aln %s %s %s | bwa samse %s - %s' % ( opts.bwa_aln_options, ref_file_name, fastq, ref_file_name, fastq )
+        #do alignments
+        runBWA(cmd, sam, tmp_dir)
+      
+  except:
+    # clean up temp dir
+    if os.path.exists( tmp_dir ):
+          shutil.rmtree( tmp_dir )
+    raise
+  #convert sam files to bam files
+  bam_files = list()
+  for sample in samples:
+    if sample == samples[0]:
+      #first file, add in all headers
+      oldsam   = open(os.path.join(tmp_dir, sample + ".sam"), 'r')
+      sam = os.path.join(tmp_dir, sample + "+headers.sam")
+      newsam = open(sam, 'w')
+      for line in headers:
+        newsam.write(line)
+      for line in oldsam:
+        newsam.write(line)
+      newsam.close()
+    else:  
+      sam = os.path.join(tmp_dir, sample + ".sam")
+    bam_base = os.path.join(tmp_dir, sample)
+    try:
+      samToBam(sam, bam_base, ref_file_name, tmp_dir)
+      bam_files.append(bam_base + ".bam")
+    except:
+      #one failure should not kill us
+      continue
+  if len(bam_files) == 0:
+    raise Exception, 'No bam files created.'
+  #merge bam_files
+  
+  cmd = 'samtools merge -r %s %s' % ( opts.out_file,' '.join( bam_files ) )
+  tmp = tempfile.NamedTemporaryFile().name
+  try:
+      tmp_stderr = open( tmp, 'wb' )
+      proc = subprocess.Popen( args=cmd, shell=True, stderr=tmp_stderr.fileno() )
+      returncode = proc.wait()
+      tmp_stderr.close()
+      # get stderr, allowing for case where it's very large
+      tmp_stderr = open( tmp, 'rb' )
+      stderr = ''
+      buffsize = 1048576
+      try:
+          while True:
+              stderr += tmp_stderr.read( buffsize )
+              if not stderr or len( stderr ) % buffsize != 0:
+                  break
+      except OverflowError:
+          pass
+      tmp_stderr.close()
+      if returncode != 0:
+          raise Exception, stderr
+      if os.path.exists( tmp ):
+          os.unlink( tmp )
+  except Exception, e:
+      if os.path.exists( tmp ):
+          os.unlink( tmp )
+      stop_err( 'Error running SAMtools merge tool\n' + str( e ) )
+  if os.path.getsize( opts.out_file ) > 0:
+      sys.stdout.write( '%s files merged.\n' % ( len( bam_files ) - 2 ) )
+  else:
+      stop_err( 'The output file is empty, there may be an error with one of your input files.' )
+  
+  tmp_header = tempfile.NamedTemporaryFile(dir = tmp_dir).name
+  
+  #final cleanup
+  if os.path.exists( tmp_dir ):
+    shutil.rmtree( tmp_dir )
+  
+if __name__ == '__main__':
+  main()
+
