@@ -18,6 +18,7 @@ import shutil
 import optparse
 import tempfile
 import itertools
+import gzip
 
 
 #make sure we can open as many files as we need. Fails on some systems.
@@ -66,6 +67,11 @@ def getOptions():
   parser.add_option("-l","--library",
                     action = "store", dest = "library", default = None,
                     help = "Sets a value for library. Default value is the basename of forward read file.")
+  parser.add_option("-z","--zipped",
+                    action = "store_true", dest = "zipped", default = False,
+                    help = "Input fastq files are gzipped")
+
+  
   
   (options, args) = parser.parse_args()
   if not (options.barcode_file and options.read_fwd and options.out_file and options.ref_file):
@@ -256,7 +262,11 @@ def main():
   try:
     if (not opts.read_rev) and (not opts.read_bc):
       #old form: single end, with integrated barcode.
-      for title, seq, qual in FastqGeneralIterator(open(opts.read_fwd)):
+      if opts.zipped:
+        fh = gzip.open(opts.read_fwd, 'r')
+      else:
+        fh = open(opts.read_fwd, 'r')
+      for title, seq, qual in FastqGeneralIterator(fh):
         bc_sample = barcodes.get(seq[:bc_len], None)
         if not bc_sample:
           if opts.unmatched:
@@ -267,11 +277,18 @@ def main():
                       (title, 
                       seq[bc_sample.length + opts.trim:],
                       qual[bc_sample.length + opts.trim:]))
+      fh.close()
   
     elif opts.read_bc and not opts.read_rev:
       #new form: single ended, separate barcode read
-      for fwd, bc in itertools.izip(FastqGeneralIterator(open(opts.read_fwd)), 
-                                    FastqGeneralIterator(open(opts.read_bc))):
+      if opts.zipped:
+        fh = gzip.open(opts.read_fwd, 'r')
+        bh = gzip.open(opts.read_bc, 'r')
+      else:
+        fh = open(opts.read_fwd, 'r')
+        bh = open(opts.read_bc, 'r')
+      for fwd, bc in itertools.izip(FastqGeneralIterator(fh), 
+                                    FastqGeneralIterator(bh)):
         ftitle, fseq, fqual = fwd
         btitle, bseq, bqual = bc
         #TODO: add check that read names line up
@@ -282,12 +299,22 @@ def main():
           continue
         handle = fq_handles[bc_sample.sample_id]
         handle.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
+      fh.close()
+      bh.close()
   
     elif opts.read_bc and opts.read_rev:
+      if opts.zipped:
+        fh = gzip.open(opts.read_fwd, 'r')
+        rh = gzip.open(opts.read_rev, 'r')
+        bh = gzip.open(opts.read_bc, 'r')
+      else:
+        fh = open(opts.read_fwd, 'r')
+        rh = open(opts.read_rev, 'r')
+        bh = open(opts.read_bc, 'r')
       #new form: paired end, barcode included
-      for fwd, rev, bc in itertools.izip(FastqGeneralIterator(open(opts.read_fwd)), 
-                                         FastqGeneralIterator(open(opts.read_rev)), 
-                                         FastqGeneralIterator(open(opts.read_bc))):
+      for fwd, rev, bc in itertools.izip(FastqGeneralIterator(fh), 
+                                         FastqGeneralIterator(rh), 
+                                         FastqGeneralIterator(bh)):
         ftitle, fseq, fqual = fwd
         rtitle, rseq, rqual = rev
         btitle, bseq, bqual = bc
@@ -302,6 +329,9 @@ def main():
         handle.write("@%s\n%s\n+\n%s\n" % (ftitle, fseq, fqual))
         rhandle = rev_handles[bc_sample.sample_id]
         rhandle.write("@%s\n%s\n+\n%s\n" % (rtitle, rseq, rqual))
+      fh.close()
+      rh.close()
+      bh.close()
     else:
       #must be paired end with barcode included.. not supported
       print >> stderr, "Included barcodes are not supported for paired end runs."
