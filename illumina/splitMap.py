@@ -3,7 +3,7 @@
 """
 splitMap.py
 
-Splits Fastq files by a leading barcode, strips the barcode and an optional
+Splits Fastq files by a leading barcode or a separate barcode, strips the barcode and an optional
 trim length, then maps with bwa, converts to indexed, sorted bam, and recombines. 
 
 Portions copied from bwa_wrapper.py
@@ -38,10 +38,9 @@ def getOptions():
   parser.add_option("-g","--read_rev",
                     action = "store", dest = "read_rev", default = None,
                     help = "Reverse reads in fastq format")
-  pareser.add_option("-c", "-read_bc",
+  parser.add_option("-c", "--read_bc",
                      action = "store", dest = "read_bc", default = None,
-                     help = "Barcode reads in fastq format"))
-  
+                     help = "Barcode reads in fastq format")
   parser.add_option("-o","--outfile",
                     action = "store", dest = "out_file", default = None,
                     help = "Output file for merged bam")
@@ -61,9 +60,13 @@ def getOptions():
                     help = ("A string containing mapping options for bwa aln,"
                             "except for those related to files"))
   parser.add_option("-S","--bwa_sam_options",
-                    action = "store", dest = "bwa_aln_options", default = "",
+                    action = "store", dest = "bwa_sam_options", default = "",
                     help = ("A string containing mapping options for bwa samse or bwa sampe, as appropriate"
                             "except for those related to files"))
+  parser.add_option("-l","--library",
+                    action = "store", dest = "library", default = None,
+                    help = "Sets a value for library. Default value is the basename of forward read file.")
+  
   (options, args) = parser.parse_args()
   if not (options.barcode_file and options.read_fwd and options.out_file and options.ref_file):
     parser.print_help()
@@ -75,6 +78,8 @@ def getOptions():
     options.read_rev = os.path.abspath(options.read_rev)
   if options.read_bc:
     options.read_bc = os.path.abspath(options.read_bc)
+  if not options.library:
+    options.library = os.path.splitext(os.path.basename(options.read_fwd))[0]
   options.out_file = os.path.abspath(options.out_file)
   options.ref_file = os.path.abspath(options.ref_file)
   
@@ -115,7 +120,7 @@ def parseBarcodeFile(file_path):
     infile.close()
   
   barcodes = dict()
-  bc_info = [line.split() for line in lines]
+  bc_info = [line.split() for line in lines if line[0] != '#']
   bc_len = max(len(b[1]) for b in bc_info)
   for sample_id, bc_seq in bc_info:
     base_bc = Barcode(bc_seq, sample_id)
@@ -143,19 +148,18 @@ def runWrapper(cmd, tmp_dir, outfile):
         stderr += tmp_stderr.read( buffsize )
         if not stderr or len( stderr ) % buffsize != 0:
           break
-      except OverflowError:
-        pass
-      tmp_stderr.close()
-      if returncode != 0:
-        raise Exception, stderr
-    except Exception, e:
-      raise Exception, 'Error running command: ' + cmd + '\n'+ str( e ) 
-    # check that there are results in the output file
-    if outfile:
-      output_size = os.path.getsize( outfile )
-      return output_size
+    except OverflowError:
+      pass
+    tmp_stderr.close()
+    if returncode != 0:
+      raise Exception, stderr
   except Exception, e:
-      raise Exception, 'Wrapped command failed.\n' + str( e )
+    raise Exception, 'Error running command: ' + cmd + '\n'+ str( e ) 
+  # check that there are results in the output file
+  if outfile:
+    output_size = os.path.getsize( outfile )
+    return output_size
+
       
 
 def runBWA(cmd, outfile, tmp_dir):
@@ -230,11 +234,15 @@ def main():
   rev_handles = dict()
   samples =[bc.sample_id for bc in barcodes.values()]
   samples.sort()
-  headers = ["@RG\tID:%s\tSM:%s\n" % (sample, sample) for sample in samples]
-  for sample in samples:
+  
+  headers = ["@RG\tID:%s\tSM:%s\tLB:%s" % ("_".join([sample,opts.library]), sample, opts.library) for sample in samples]
+  header_file = tempfile.NamedTemporaryFile( dir=tmp_dir ).name
+  header_handle = open(header_file, 'w')
+  for sample, header in itertools.izip (samples, headers):
     file_path = os.path.join(tmp_dir, sample + ".fastq")
     fq_handles[sample] = open(file_path, "w")
-  
+    header_handle.write(header + "\n") 
+  header_handle.close()
   if opts.read_rev:
     for sample in samples:
       file_path = os.path.join(tmp_dir, sample + "_rev.fastq")
@@ -314,7 +322,7 @@ def main():
   try:
     if opts.read_rev:
       #forward and reverse reads, need to map twice and go
-      for sample in samples:
+      for sample, header in itertools.izip(samples, headers):
         fastq_fwd = os.path.join(tmp_dir, sample + ".fastq")
         fastq_rev = os.path.join(tmp_dir, sample + "_rev.fastq")
         temp_fwd = os.path.join(tmp_dir, sample + ".sai")
@@ -323,15 +331,17 @@ def main():
         sys.stdout.write( "bwa on %s\n" % sample)
         cmd = 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_fwd, temp_fwd)
         cmd += 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_rev, temp_rev)
-        cmd += 'bwa sampe %s %s %s %s %s' % (opts.bwa_sam_options  ref_file_name, temp_fwd, temp_rev, fastq )
+        cmd += 'bwa sampe %s -r %s %s %s %s %s %s' % (opts.bwa_sam_options, repr(header), ref_file_name, temp_fwd, temp_rev, fastq_fwd, fastq_rev )
         #do alignments
         runBWA(cmd, sam, tmp_dir)
     else:
-      for sample in samples:
+      for sample, header in itertools.izip(samples, headers):
         fastq = os.path.join(tmp_dir, sample + ".fastq")
         sam = os.path.join(tmp_dir, sample + ".sam")
         sys.stdout.write( "bwa on %s\n" % sample)
-        cmd = 'bwa aln %s %s %s | bwa samse %s - %s' % ( opts.bwa_aln_options, ref_file_name, fastq, ref_file_name, fastq )
+        cmd = 'bwa aln %s %s %s | bwa samse %s -r %s %s - %s' % (
+                opts.bwa_aln_options, ref_file_name, fastq, 
+                opts.bwa_sam_options, repr(header), ref_file_name, fastq )
         #do alignments
         runBWA(cmd, sam, tmp_dir)
       
@@ -343,18 +353,7 @@ def main():
   #convert sam files to bam files
   bam_files = list()
   for sample in samples:
-    if sample == samples[0]:
-      #first file, add in all headers
-      oldsam   = open(os.path.join(tmp_dir, sample + ".sam"), 'r')
-      sam = os.path.join(tmp_dir, sample + "+headers.sam")
-      newsam = open(sam, 'w')
-      for line in headers:
-        newsam.write(line)
-      for line in oldsam:
-        newsam.write(line)
-      newsam.close()
-    else:  
-      sam = os.path.join(tmp_dir, sample + ".sam")
+    sam = os.path.join(tmp_dir, sample + ".sam")
     bam_base = os.path.join(tmp_dir, sample)
     try:
       samToBam(sam, bam_base, ref_file_name, tmp_dir)
@@ -366,7 +365,7 @@ def main():
     raise Exception, 'No bam files created.'
   #merge bam_files
   
-  cmd = 'samtools merge -r %s %s' % ( opts.out_file,' '.join( bam_files ) )
+  cmd = 'samtools merge -h %s %s %s' % (  header_file, opts.out_file,' '.join( bam_files ) )
   tmp = tempfile.NamedTemporaryFile().name
   try:
       tmp_stderr = open( tmp, 'wb' )
@@ -392,11 +391,11 @@ def main():
   except Exception, e:
       if os.path.exists( tmp ):
           os.unlink( tmp )
-      stop_err( 'Error running SAMtools merge tool\n' + str( e ) )
+      raise Exception( 'Error running SAMtools merge tool\n' + str( e ) )
   if os.path.getsize( opts.out_file ) > 0:
-      sys.stdout.write( '%s files merged.\n' % ( len( bam_files ) - 2 ) )
+      sys.stdout.write( '%s files merged.\n' %  len(bam_files) )
   else:
-      stop_err( 'The output file is empty, there may be an error with one of your input files.' )
+      raise Exception( 'The output file is empty, there may be an error with one of your input files.' )
   
   tmp_header = tempfile.NamedTemporaryFile(dir = tmp_dir).name
   
