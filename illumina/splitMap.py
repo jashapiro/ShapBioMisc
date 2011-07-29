@@ -364,8 +364,7 @@ def main():
   if len(bam_files) == 0:
     raise Exception, 'No bam files created.'
   #merge bam_files
-  
-  cmd = 'samtools merge -h %s %s %s' % (  header_file, opts.out_file,' '.join( bam_files ) )
+  cmd = 'samtools merge -h %s %s %s' % ( header_file, opts.out_file,' '.join( bam_files ) )
   tmp = tempfile.NamedTemporaryFile().name
   try:
       tmp_stderr = open( tmp, 'wb' )
