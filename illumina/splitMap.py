@@ -70,6 +70,9 @@ def getOptions():
   parser.add_option("-z","--zipped",
                     action = "store_true", dest = "zipped", default = False,
                     help = "Input fastq files are gzipped")
+  parser.add_option("-D","--debug",
+                    action = "store_true", dest = "debug", default = False,
+                    help = "Debug mode... temp files are put in './temp' and not deleted")
 
   
   
@@ -233,7 +236,10 @@ def samToBam(infile, bam_base, ref_file, tmp_dir):
 
 def main():
   opts = getOptions()
-  tmp_dir = tempfile.mkdtemp()
+  if opts.debug:
+    tmp_dir = os.path.abspath("temp") 
+  else:  
+    tmp_dir = tempfile.mkdtemp()
   barcodes, bc_len = parseBarcodeFile(opts.barcode_file)
   #create files and filehandles for the fastq files
   fq_handles = dict()
@@ -377,7 +383,7 @@ def main():
       
   except:
     # clean up temp dir
-    if os.path.exists( tmp_dir ):
+    if os.path.exists( tmp_dir ) and not opts.debug:
           shutil.rmtree( tmp_dir )
     raise
   #convert sam files to bam files
@@ -415,10 +421,10 @@ def main():
       tmp_stderr.close()
       if returncode != 0:
           raise Exception, stderr
-      if os.path.exists( tmp ):
+      if os.path.exists( tmp ) and not opts.debug:
           os.unlink( tmp )
   except Exception, e:
-      if os.path.exists( tmp ):
+      if os.path.exists( tmp ) and not opts.debug:
           os.unlink( tmp )
       raise Exception( 'Error running SAMtools merge tool\n' + str( e ) )
   if os.path.getsize( opts.out_file ) > 0:
@@ -426,10 +432,8 @@ def main():
   else:
       raise Exception( 'The output file is empty, there may be an error with one of your input files.' )
   
-  tmp_header = tempfile.NamedTemporaryFile(dir = tmp_dir).name
-  
   #final cleanup
-  if os.path.exists( tmp_dir ):
+  if os.path.exists( tmp_dir ) and not opts.debug:
     shutil.rmtree( tmp_dir )
   
 if __name__ == '__main__':
