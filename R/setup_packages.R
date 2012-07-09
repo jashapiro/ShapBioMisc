@@ -8,6 +8,9 @@ install.packages(hadley)
 parallel_packs <- c("foreach", "doParallel")
 install.packages(parallel_packs)
 
+# Other essential tools
+install.packages(c("RCurl", "bitops"))
+
 #reproducible research
 install.packages("knitr")
 
