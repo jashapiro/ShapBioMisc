@@ -16,6 +16,9 @@ import subprocess
 import multiprocessing
 import signal
 
+# from https://gist.github.com/626518
+import fix_multiprocessing.py
+
 class FlowLane(object):
   """Representation of a flowcell lane and its contents"""
   def __init__(self, flowcell, lane, 
@@ -100,20 +103,26 @@ def runSplitter(lane, mismatches = 1):
     bcfile.close()
   return output
   
-def init_worker():
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    
-
 def main():
   args = getArgs()
   lanes = readInfoFile(args.infofile, base_dir = args.in_dir)
   if args.threads > 1:
     try:
-        pool = multiprocessing.Pool(processes=args.threads, init_worker)
+        pool = multiprocessing.Pool(processes=args.threads)
         outputs = pool.imap(runSplitter, lanes.values())
+        pool.close()
     except KeyboardInterrupt:
+        sys.stderr.write('Got ^C while pool mapping, terminating the pool. ')           
         pool.terminate()
-        pool.wait()
+        sys.stderr.write('Pool is terminated\n')
+        raise
+    except Exception, e:
+        sys.stderr.write('Caught exception: %r, terminating the pool. ' % (e,))
+        pool.terminate()
+        sys.stderr.write('Pool is terminated\n')
+        raise
+    finally:
+        pool.join()
   else:
     outputs = (runSplitter(l) for l in lanes.values())
   for output in outputs:
