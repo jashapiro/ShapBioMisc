@@ -94,7 +94,7 @@ def runSplitter(lane, mismatches = 1):
     output = "Flowcell %s, lane %s\n" % (lane.flowcell, lane.lane)
     output += subprocess.check_output(['barcode_splitter.py', '--bcfile=%s' % bcfile.name,
                                        '--mismatches=%s' % mismatches, '--idxread=2',
-                                       '--unmatched_prefix=%s' % lane.lane,
+                                       '--unmatched_suffix=%s_%s_' % lane.flowcell + ,
                                        os.path.join(lane.read_dir, lane.fwd_read),
                                        os.path.join(lane.read_dir, lane.index_read),
                                        os.path.join(lane.read_dir, lane.rev_read)
