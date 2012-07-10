@@ -17,7 +17,7 @@ import multiprocessing
 import signal
 
 # from https://gist.github.com/626518
-import fix_multiprocessing.py
+import fix_multiprocessing
 
 class FlowLane(object):
   """Representation of a flowcell lane and its contents"""
