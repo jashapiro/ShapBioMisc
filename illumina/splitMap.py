@@ -27,6 +27,8 @@ import gzip
 
 from Bio.SeqIO.QualityIO import FastqGeneralIterator
 
+BASES=['A', 'C', 'G','T', 'N']
+
 def getOptions():
   """Get command line options"""
   parser = optparse.OptionParser()
@@ -49,6 +51,11 @@ def getOptions():
                     action = "store", dest = "trim", 
                     type = "int", default = 0,
                     help = "How many bases beyond the barcode should be trimmed")
+  parser.add_option("-m","--mismatch",
+                    action = "store", dest = "mismatch", 
+                    type = "int", default = 0,
+                    help = "How many mismatches are allowed in a barcode")
+  
   parser.add_option("-u","--unmatched",
                     action = "store", dest = "unmatched", default = None,
                     help = ("File to save reads without any of the expected barcodes."
@@ -96,7 +103,7 @@ def getOptions():
 
 class Barcode(object):
   """Barcode object that stores info about barcodes and the associated strain"""
-  def __init__(self, barcode, sample_id, length = None):
+  def __init__(self,sample_id, barcode, length = None):
     super(Barcode, self).__init__()
     self.barcode = barcode.upper()
     self.sample_id = sample_id
@@ -115,8 +122,35 @@ class Barcode(object):
     #now the expansion code
     bc_list = [self.barcode]
     for i in range(length - self.length):
-      bc_list = [b+c for b in bc_list for c in ['A', 'C', 'G','T']]
+      bc_list = [b+c for b in bc_list for c in BASES]
     return(bc_list)
+
+def mismatchBarcodes(barcode_dict, mismatches):
+    """Generate all possible one base mismatches"""
+    expanded_dict = dict()
+    for n in range(mismatches):
+      for barcode, sample in barcode_dict.iteritems():
+        for i in range(len(barcode)):
+          bc_list = list(barcode)
+          for b in BASES:
+            bc_list[i] = b
+            new_bc = ''.join(bc_list)
+            # check if new_bc has already been generated and points to a different original
+            if (new_bc in expanded_dict) and (expanded_dict[new_bc] != sample):
+              if expanded_dict[new_bc] == AMBIGUOUS: 
+                pass
+              else:
+                # check if the bc is from this expansion round (Hamming distance > n). If so, set to unmatched
+                if hamming_distance(new_bc, expanded_dict[new_bcs].barcode) > n: 
+                  expanded_dict[new_bc] = AMBIGUOUS
+            else:
+              expanded_dict[new_bc] = sample
+      barcode_dict = expanded_dict.copy()
+    return barcode_dict        
+
+def hamming_distance(s1, s2):
+    assert len(s1) == len(s2)
+    return sum(ch1 != ch2 for ch1, ch2 in zip(s1, s2))  
 
 def parseBarcodeFile(file_path):
   """Parse the barcode file, which should just be a tabbed list.
@@ -132,13 +166,14 @@ def parseBarcodeFile(file_path):
   bc_info = [line.split() for line in lines if line[0] != '#']
   bc_len = max(len(b[1]) for b in bc_info)
   for sample_id, bc_seq in bc_info:
-    base_bc = Barcode(bc_seq, sample_id)
+    base_bc = Barcode(sample_id, bc_seq)
     for bc in base_bc.expand(bc_len):
       #check that the barcode has not been seen before.
       if barcodes.setdefault(bc, base_bc) != base_bc:
         raise ValueError("Barcodes are not unique")
-  
   return (barcodes, bc_len)
+  
+
   
 def runWrapper(cmd, tmp_dir, outfile):
   """wrapper to eliminate excception-handling boilerplate"""
@@ -241,6 +276,8 @@ def main():
   else:  
     tmp_dir = tempfile.mkdtemp()
   barcodes, bc_len = parseBarcodeFile(opts.barcode_file)
+  if opts.mismatch:
+      barcodes = mismatchBarcodes(barcodes, opts.mismatch)
   #create files and filehandles for the fastq files
   fq_handles = dict()
   rev_handles = dict()
