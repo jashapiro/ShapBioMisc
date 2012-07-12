@@ -76,7 +76,7 @@ def readInfoFile(filename, base_dir):
       fields = line.split('\t')
       flow_lane = "_".join(fields[0:2])
       (strain, barcode, read_dir, fwd_read, rev_read, index_read) = fields[3:9]
-      strain_flowlane = "_".join([strain, flow_lane])
+      strain_flowlane = "-".join([strain, flow_lane])
       read_dir = os.path.join(base_dir, read_dir)
       if flow_lane in lane_dict:
         lane_dict[flow_lane].checkFiles(read_dir, fwd_read, rev_read, index_read)
@@ -94,7 +94,7 @@ def runSplitter(lane, mismatches = 1):
     output = "Flowcell %s, lane %s\n" % (lane.flowcell, lane.lane)
     output += subprocess.check_output(['barcode_splitter.py', '--bcfile=%s' % bcfile.name,
                                        '--mismatches=%s' % mismatches, '--idxread=2',
-                                       '--unmatched_suffix=_%s_%s' % (lane.flowcell, lane.lane),
+                                       '--unmatched_suffix=-%s_%s' % (lane.flowcell, lane.lane),
                                        os.path.join(lane.read_dir, lane.fwd_read),
                                        os.path.join(lane.read_dir, lane.index_read),
                                        os.path.join(lane.read_dir, lane.rev_read)
