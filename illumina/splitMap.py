@@ -15,7 +15,7 @@ import sys
 import os
 import subprocess
 import shutil
-import optparse
+import argparse
 import tempfile
 import itertools
 import gzip
@@ -31,7 +31,7 @@ BASES=['A', 'C', 'G','T', 'N']
 
 def getOptions():
   """Get command line options"""
-  parser = optparse.OptionParser()
+  parser = argparse.ArgumentParser()
   parser.add_option("-b", "--barcode", 
                     action = "store", dest = "barcode_file", default = None,
                     help = "Tab delimited barcode definition file.")
@@ -83,7 +83,7 @@ def getOptions():
 
   
   
-  (options, args) = parser.parse_args()
+  options = parser.parse_args()
   if not (options.barcode_file and options.read_fwd and options.out_file and options.ref_file):
     parser.print_help()
     sys.exit(1)
@@ -300,11 +300,11 @@ def main():
   if opts.unmatched:
     unmatched = open(opts.unmatched)
   
-  #read the fastQ file, split by barcode and write out
+  # read the fastQ file, split by barcode and write out
   i = 0
   try:
     if (not opts.read_rev) and (not opts.read_bc):
-      #old form: single end, with integrated barcode.
+      # old form: single end, with integrated barcode.
       if opts.zipped:
         fh = gzip.open(opts.read_fwd, 'r')
       else:
@@ -323,7 +323,7 @@ def main():
       fh.close()
   
     elif opts.read_bc and not opts.read_rev:
-      #new form: single ended, separate barcode read
+      # new form: single ended, separate barcode read
       if opts.zipped:
         fh = gzip.open(opts.read_fwd, 'r')
         bh = gzip.open(opts.read_bc, 'r')
@@ -346,6 +346,7 @@ def main():
       bh.close()
   
     elif opts.read_bc and opts.read_rev:
+      # new form: double ended, separate barcode read
       if opts.zipped:
         fh = gzip.open(opts.read_fwd, 'r')
         rh = gzip.open(opts.read_rev, 'r')
@@ -354,7 +355,6 @@ def main():
         fh = open(opts.read_fwd, 'r')
         rh = open(opts.read_rev, 'r')
         bh = open(opts.read_bc, 'r')
-      #new form: paired end, barcode included
       for fwd, rev, bc in itertools.izip(FastqGeneralIterator(fh), 
                                          FastqGeneralIterator(rh), 
                                          FastqGeneralIterator(bh)):
@@ -406,6 +406,7 @@ def main():
         cmd += 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_rev, temp_rev)
         cmd += 'bwa sampe %s -r %s %s %s %s %s %s' % (opts.bwa_sam_options, repr(header), ref_file_name, temp_fwd, temp_rev, fastq_fwd, fastq_rev )
         #do alignments
+        sys.stdout.write(cmd)
         runBWA(cmd, sam, tmp_dir)
     else:
       for sample, header in itertools.izip(samples, headers):
