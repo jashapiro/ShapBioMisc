@@ -32,52 +32,52 @@ BASES=['A', 'C', 'G','T', 'N']
 def getOptions():
   """Get command line options"""
   parser = argparse.ArgumentParser()
-  parser.add_argment("-b", "--barcode", 
+  parser.add_argument("-b", "--barcode", 
                     action = "store", dest = "barcode_file", default = None,
                     help = "Tab delimited barcode definition file.")
-  parser.add_argment("-f","--read_fwd",
+  parser.add_argument("-f","--read_fwd",
                     action = "store", dest = "read_fwd", default = None,
                     help = "Reads (forward if paired end) in fastq format")
-  parser.add_argment("-g","--read_rev",
+  parser.add_argument("-g","--read_rev",
                     action = "store", dest = "read_rev", default = None,
                     help = "Reverse reads in fastq format")
-  parser.add_argment("-c", "--read_bc",
+  parser.add_argument("-c", "--read_bc",
                      action = "store", dest = "read_bc", default = None,
                      help = "Barcode reads in fastq format")
-  parser.add_argment("-o","--outfile",
+  parser.add_argument("-o","--outfile",
                     action = "store", dest = "out_file", default = None,
                     help = "Output file for merged bam")
-  parser.add_argment("-t","--trim",
+  parser.add_argument("-t","--trim",
                     action = "store", dest = "trim", 
                     type = "int", default = 0,
                     help = "How many bases beyond the barcode should be trimmed")
-  parser.add_argment("-m","--mismatch",
+  parser.add_argument("-m","--mismatch",
                     action = "store", dest = "mismatch", 
                     type = "int", default = 0,
                     help = "How many mismatches are allowed in a barcode")
   
-  parser.add_argment("-u","--unmatched",
+  parser.add_argument("-u","--unmatched",
                     action = "store", dest = "unmatched", default = None,
                     help = ("File to save reads without any of the expected barcodes."
                             "Default is to discard unmmatched reads"))
-  parser.add_argment("-r","--reference",
+  parser.add_argument("-r","--reference",
                     action = "store", dest = "ref_file", default = "",
                     help = "The reference genome to use. Must be indexed for bwa and samtools, with index files named as per standard")
-  parser.add_argment("-A","--bwa_aln_options",
+  parser.add_argument("-A","--bwa_aln_options",
                     action = "store", dest = "bwa_aln_options", default = "",
                     help = ("A string containing mapping options for bwa aln,"
                             "except for those related to files"))
-  parser.add_argment("-S","--bwa_sam_options",
+  parser.add_argument("-S","--bwa_sam_options",
                     action = "store", dest = "bwa_sam_options", default = "",
                     help = ("A string containing mapping options for bwa samse or bwa sampe, as appropriate"
                             "except for those related to files"))
-  parser.add_argment("-l","--library",
+  parser.add_argument("-l","--library",
                     action = "store", dest = "library", default = None,
                     help = "Sets a value for library. Default value is the basename of forward read file.")
-  parser.add_argment("-z","--zipped",
+  parser.add_argument("-z","--zipped",
                     action = "store_true", dest = "zipped", default = False,
                     help = "Input fastq files are gzipped")
-  parser.add_argment("-D","--debug",
+  parser.add_argument("-D","--debug",
                     action = "store_true", dest = "debug", default = False,
                     help = "Debug mode... temp files are put in './temp' and not deleted")
 
