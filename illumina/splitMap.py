@@ -49,11 +49,11 @@ def getOptions():
                     help = "Output file for merged bam")
   parser.add_argument("-t","--trim",
                     action = "store", dest = "trim", 
-                    type = "int", default = 0,
+                    type = int, default = 0,
                     help = "How many bases beyond the barcode should be trimmed")
   parser.add_argument("-m","--mismatch",
                     action = "store", dest = "mismatch", 
-                    type = "int", default = 0,
+                    type = int, default = 0,
                     help = "How many mismatches are allowed in a barcode")
   
   parser.add_argument("-u","--unmatched",
