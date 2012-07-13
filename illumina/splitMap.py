@@ -63,13 +63,13 @@ def getOptions():
   parser.add_argument("-r","--reference",
                     action = "store", dest = "ref_file", default = "",
                     help = "The reference genome to use. Must be indexed for bwa and samtools, with index files named as per standard")
-  parser.add_argument("-A","--bwa_aln_options",
+  parser.add_argument("--bwa-aln-opts",
                     action = "store", dest = "bwa_aln_options", default = "",
-                    help = ("A string containing mapping options for bwa aln,"
+                    help = ("A quoted string containing mapping options for bwa aln,"
                             "except for those related to files"))
-  parser.add_argument("-S","--bwa_sam_options",
+  parser.add_argument("--bwa-sam-opts",
                     action = "store", dest = "bwa_sam_options", default = "",
-                    help = ("A string containing mapping options for bwa samse or bwa sampe, as appropriate"
+                    help = ("A quoted string containing mapping options for bwa samse or bwa sampe, as appropriate"
                             "except for those related to files"))
   parser.add_argument("-l","--library",
                     action = "store", dest = "library", default = None,
