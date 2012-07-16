@@ -281,7 +281,7 @@ def main():
   #create files and filehandles for the fastq files
   fq_handles = dict()
   rev_handles = dict()
-  samples =[bc.sample_id for bc in barcodes.values()]
+  samples = list(set([bc.sample_id for bc in barcodes.values()]))
   samples.sort()
   
   headers = ["@RG\tID:%s\tSM:%s\tLB:%s" % ("_".join([sample,opts.library]), sample, opts.library) for sample in samples]
