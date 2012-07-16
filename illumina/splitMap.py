@@ -408,6 +408,10 @@ def main():
         #do alignments
         sys.stdout.write(cmd)
         runBWA(cmd, sam, tmp_dir)
+        os.remove(fastq_fwd)
+        os.remove(fastq_rev)
+        os.remove(temp_fwd)
+        os.remove(temp_rev)
     else:
       for sample, header in itertools.izip(samples, headers):
         fastq = os.path.join(tmp_dir, sample + ".fastq")
@@ -418,6 +422,7 @@ def main():
                 opts.bwa_sam_options, repr(header), ref_file_name, fastq )
         #do alignments
         runBWA(cmd, sam, tmp_dir)
+        os.remove(fastq)
       
   except:
     # clean up temp dir
@@ -432,9 +437,11 @@ def main():
     try:
       samToBam(sam, bam_base, ref_file_name, tmp_dir)
       bam_files.append(bam_base + ".bam")
+      os.remove(sam)
     except:
       #one failure should not kill us
       continue
+    
   if len(bam_files) == 0:
     raise Exception, 'No bam files created.'
   #merge bam_files
