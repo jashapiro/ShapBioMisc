@@ -177,8 +177,7 @@ def parseBarcodeFile(file_path):
         raise ValueError("Barcodes are not unique")
   return (barcodes, bc_len)
 
-
-
+  
 def runWrapper(cmd, tmp_dir, outfile):
   """wrapper to eliminate excception-handling boilerplate"""
   buffsize = 1048576
@@ -207,7 +206,6 @@ def runWrapper(cmd, tmp_dir, outfile):
   if outfile:
     output_size = os.path.getsize( outfile )
     return output_size
-
 
 
 def runBWA(cmd, outfile, tmp_dir):
@@ -272,7 +270,6 @@ def samToBam(infile, bam_base, ref_file, tmp_dir):
       raise Exception, stderr
 
 
-
 def main():
   opts = getOptions()
   if opts.debug:
@@ -285,7 +282,7 @@ def main():
   #create files and filehandles for the fastq files
   fq_handles = dict()
   rev_handles = dict()
-  samples =[bc.sample_id for bc in barcodes.values()]
+  samples = list(set([bc.sample_id for bc in barcodes.values()]))
   samples.sort()
 
   headers = ["@RG\tID:%s\tSM:%s\tLB:%s" % ("_".join([sample,opts.library]), sample, opts.library) for sample in samples]
@@ -414,6 +411,10 @@ def main():
         #do alignments
         sys.stdout.write(cmd)
         runBWA(cmd, sam, tmp_dir)
+        os.remove(fastq_fwd)
+        os.remove(fastq_rev)
+        os.remove(temp_fwd)
+        os.remove(temp_rev)
     else:
       for sample, header in itertools.izip(samples, headers):
         fastq = os.path.join(tmp_dir, sample + ".fastq")
@@ -424,7 +425,8 @@ def main():
                 opts.bwa_sam_options, repr(header), ref_file_name, fastq )
         #do alignments
         runBWA(cmd, sam, tmp_dir)
-
+        os.remove(fastq)
+      
   except:
     # clean up temp dir
     if os.path.exists( tmp_dir ) and not opts.debug:
@@ -438,9 +440,11 @@ def main():
     try:
       samToBam(sam, bam_base, ref_file_name, tmp_dir)
       bam_files.append(bam_base + ".bam")
+      os.remove(sam)
     except:
       #one failure should not kill us
       continue
+    
   if len(bam_files) == 0:
     raise Exception, 'No bam files created.'
   #merge bam_files
