@@ -84,6 +84,9 @@ def getOptions():
   parser.add_argument("-D","--debug",
                     action = "store_true", dest = "debug", default = False,
                     help = "Debug mode... temp files are put in './temp' and not deleted")
+  parser.add_argument("--tmpdir",
+                    action = "store", dest = "tmpdir", default = None,
+                    help = "Sets a base directory for temporary files.")
 
 
 
@@ -102,6 +105,8 @@ def getOptions():
     options.library = os.path.splitext(os.path.basename(options.read_fwd))[0]
   options.out_file = os.path.abspath(options.out_file)
   options.ref_file = os.path.abspath(options.ref_file)
+  if options.tmpdir:
+      tmpdir = os.path.abspath(options.tmpdir)
 
   return options
 
@@ -275,7 +280,7 @@ def main():
   if opts.debug:
     tmp_dir = os.path.abspath("temp")
   else:
-    tmp_dir = tempfile.mkdtemp()
+    tmp_dir = tempfile.mkdtemp(dir=opts.tmpdir)
   barcodes, bc_len = parseBarcodeFile(opts.barcode_file)
   if opts.mismatch:
       barcodes = mismatchBarcodes(barcodes, opts.mismatch)
@@ -409,7 +414,7 @@ def main():
         cmd += 'bwa aln %s %s %s > %s;' % (opts.bwa_aln_options, ref_file_name, fastq_rev, temp_rev)
         cmd += 'bwa sampe %s -r %s %s %s %s %s %s' % (opts.bwa_sam_options, repr(header), ref_file_name, temp_fwd, temp_rev, fastq_fwd, fastq_rev )
         #do alignments
-        sys.stdout.write(cmd)
+        #sys.stdout.write(cmd + "\n")
         runBWA(cmd, sam, tmp_dir)
         os.remove(fastq_fwd)
         os.remove(fastq_rev)
@@ -475,14 +480,15 @@ def main():
       if os.path.exists( tmp ) and not opts.debug:
           os.unlink( tmp )
       raise Exception( 'Error running SAMtools merge tool\n' + str( e ) )
+  finally:
+	if os.path.exists( tmp_dir ) and not opts.debug:
+	    shutil.rmtree( tmp_dir )
   if os.path.getsize( opts.out_file ) > 0:
       sys.stdout.write( '%s files merged.\n' %  len(bam_files) )
   else:
       raise Exception( 'The output file is empty, there may be an error with one of your input files.' )
 
-  #final cleanup
-  if os.path.exists( tmp_dir ) and not opts.debug:
-    shutil.rmtree( tmp_dir )
+  
 
 if __name__ == '__main__':
   main()
