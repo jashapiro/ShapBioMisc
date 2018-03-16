@@ -2,7 +2,7 @@
 """
 A script to find and remove duplicate fastq entries.
 
-Assumes all reads have unique IDs. 
+Assumes all reads have unique IDs.
 """
 
 import argparse
@@ -50,7 +50,7 @@ def main():
     elif dupcount == 1:
         print("There was 1 duplicate in {}".format(args.fq_file))
     else:
-        print("There were {} duplicates in {}".format(dupcout, args.fq_file))
+        print("There were {} duplicates in {}".format(dupcount, args.fq_file))
 
 
 if __name__ == '__main__':
