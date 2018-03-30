@@ -2,7 +2,7 @@
 """
 A script to find and remove duplicate fastq entries.
 
-Assumes all reads have unique IDs. 
+Assumes all reads have unique IDs.
 """
 
 import argparse
@@ -28,7 +28,7 @@ def main():
         in_handle = open(args.fq_file)
 
     if args.outfile[-3:] == ".gz":
-        out_handle = gzip.open(args.outfile, mode="w")
+        out_handle = gzip.open(args.outfile, mode="wt")
     else:
         out_handle = open(args.outfile, mode="w")
 
@@ -47,10 +47,10 @@ def main():
     dupcount = len(duplicates)
     if dupcount == 0:
         print("There were no duplicates in {}".format(args.fq_file))
-    elif dupcout == 1:
+    elif dupcount == 1:
         print("There was 1 duplicate in {}".format(args.fq_file))
     else:
-        print("There were {} duplicates in {}".format(dupcout, args.fq_file))
+        print("There were {} duplicates in {}".format(dupcount, args.fq_file))
 
 
 if __name__ == '__main__':
